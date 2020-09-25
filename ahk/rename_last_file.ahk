@@ -5,39 +5,22 @@ CueCard := "e:\obsRecordings\cuecard.ini"
 OBSRecording =  e:\obsRecordings
 Dailies = e:\Dailies
 
-Loop, %OBSRecording%\*.mp4
-
-{
-    FileGetTime, Time, %A_LoopFileFullPath%, M
-     If (Time > Time_Orig)
-     {
-          Time_Orig := Time
-          SplitPath, A_LoopFileLongPath, OutFileName, OutDir, OutExtension, OutNameNoExt, OutDrive
-          File := A_LoopFileName
-
-     }
-
-}
-
-MP4 := OutDir . "\" OutNameNoExt . ".mp4"
-FLV := OutDir . "\" OutNameNoExt . ".flv"
-
-;blah := "blah"
+#Include include\select_last_file_from_obs.ahk
 
 IniRead, EpisodeVar, %CueCard%, manifest, episode
-IniRead, CategoryVar, %CueCard%, manifest, category
+IniRead, TagsVar, %CueCard%, manifest, tags
 IniRead, SceneVar, %CueCard%, manifest, scene
 IniRead, TakeVar, %CueCard%, manifest, take
 
 Gui, add, Text,, Episode:
 Gui, add, Text,, Take:
 Gui, add, Text,, Scene:
-Gui, add, Text,, Category:
+Gui, add, Text,, Tags:
 Gui, add, Text,, Notes:
 Gui, Add, Edit, vEpisode ym w150, %EpisodeVar%
 Gui, Add, Edit, vTake w100, %TakeVar%
 Gui, Add, Edit, vScene w100, %SceneVar%
-Gui, Add, Edit, vCategory w100, %CategoryVar%
+Gui, Add, Edit, vTags w100, %TagsVar%
 Gui, Add, Edit, vNotes w100
 
 ;Gui, Add, Button, gEpisode, episode
@@ -57,7 +40,7 @@ Gui, Submit
 Gui, Destroy
 
 IniWrite, %Episode%, %CueCard%, manifest, episode
-IniWrite, %Category%, %CueCard%, manifest, category
+IniWrite, %Tags%, %CueCard%, manifest, tags
 TakeInc := Take + 1
 IniWrite, %TakeInc%, %CueCard%, manifest, take
 IniWrite, %Scene%, %CueCard%, manifest, scene
@@ -66,15 +49,17 @@ IniWrite, %Scene%, %CueCard%, manifest, scene
 
 FinalOutFile :=   Take . "-"  . scene
 
-If (Category) {
-	FinalOutFile := FinalOutFile . "-" . Category 
+If (Tags) {
+	FinalOutFile := FinalOutFile . "-" . Tags 
 }
 
 If (Notes) {
 	FinalOutFile := FinalOutFile . "-" . Notes 
 }
 
-FinalOutFile := FinalOutFile . ".mp4"
+TimestampMP4 := RegExReplace(OutFileName, "20\d\d-\d\d", "")
+MsgBox, %NewStr%
+FinalOutFile := FinalOutFile . OutFileName
 
 ; TODO - check for file length
 ; TODO - append timestamp from original
@@ -83,12 +68,12 @@ FinalOutFile := FinalOutFile . ".mp4"
 ; create directory
 ; handle EDL file
 
-FinalOutDirectory := Dailies . "\" . Episode 
+FinalOutDirectory := Dailies . "\" . Episode
+FinalMedia := FinalOutDirectory . "\" . FinalOutFile
 
-MsgBox, %FinalOutDirectory%
+FileCreateDir, %FinalOutDirectory%
 MsgBox, %FinalOutFile%
 
-;FileMove, %MP4,
-
+FileMove, %A_LoopFileLongPath%, %FinalMedia%
 
 return
