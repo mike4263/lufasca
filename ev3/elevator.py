@@ -11,11 +11,56 @@ from pybricks.parameters import Port
 import math
 
 
+class Catch():
+    _status = None
+    _motor = None
+    _stop_time = 0
+
+    def __init__(self, motor : Motor):
+        self._status = 'Retracted'
+        self._motor = motor
+        self.print_angle()
+
+    def print_angle(self):
+        pass
+
+    def extend(self):
+        self._update('Retracted', 'Extended', 100)
+        self._stop_time = time() + 20 
+        self.print_angle()
+
+    def retract(self):
+        self._update('Extended', 'Retracted', -100)
+        self._stop_time = time() + 5 
+        self.print_angle()
+
+    def should_stop(self):
+        return self._stop_time != 0 and self._stop_time - time() <= 0
+
+    def stop(self):
+        self._run_motor(0) 
+        print("stopping " + str(self._stop_time))
+        self.print_angle()
+        self._stop_time = 0
+
+    def _update(self, check_status, reset_status, position): 
+        if self._status == check_status:
+            self._run_motor(position)
+            self._status = reset_status
+
+    def _run_motor(self, speed): 
+        self._motor.dc(speed)
+
+    def status(self):
+        return self._status
+
+
 class Cage():
     _status = None
 
-    def __init__(self):
+    def __init__(self, motor):
         self._status = 'Initial;'
+        self._motor = motor
 
     def engage(self):
         self._status = 'Engaged'
@@ -95,31 +140,27 @@ ToF = DIST_ToF(Port.S1, 0x02)
 tower = TowerHeight()
 
 
-cage = Cage()
 
 lights = LED()
 lights.audit()
 #lights.red()
 motor = Motor(Port.A)
+catch_motor = Motor(Port.B)
+
+cage = Cage(motor)
+catch = Catch(catch_motor)
+catch.stop()
 
 angle = motor.angle()
 
-# Demo code to test lights
-# lights.setColor("FF0000")
-# wait(3000)
-# lights.setColor("00FF00")
-# wait(3000)
-# lights.setColor("0000FF")
-# wait(3000)
-
 colors = [
     "FF0000",  # Red
-    "FF5500",  # Orange
-    "FFAA00",  # Gold            # breaching mids 
-    "FFDF00",  # Bright Yellow   # green starts here
-    "CCFF00",  # Yellow-Lime
-    "99FF00",  # Chartreuse
-    "55FF00",  # Harlequin - just clear of the ramp (barely)
+    "FFDF00",  # Orange
+    "00FF00",  # Green   # breaching mids 
+    "00FF00",  #         # 
+    "00FF00",  # 
+    "00FF00",  # 
+    "00FF00",  #         # just clear of the ramp (barely)
     "00FF00",  # Green
     "00FF55",  # Emerald
     "00FFAA",  # Turquoise
@@ -139,12 +180,14 @@ def check_height_of_elevator():
 last_print_time = 0
 dropped_time = 0
 
+drop_height = 0
+
 def run_to_position(position):
     motor.run_target(
         speed=100,
         target_angle=position,
         wait=True,
-        then = Stop.COAST
+        then = Stop.BRAKE
     )
 
 def print_position(text):
@@ -157,15 +200,11 @@ def shift_down():
     print_position("DOWN")
     run_to_position(0)
     print_position("DOWN")
-    run_to_position(10)
-    print_position("DOWN")
-    run_to_position(0)
-    print_position("DOWN")
 
 def shift_up():
     print("UP raised")
     print_position("UP")
-    run_to_position(36)
+    run_to_position(39)
     print_position("UP")
     cage.engage()
     dropped_time = 0
@@ -174,17 +213,30 @@ def shift_up():
 
 while True:
 
+    if Button.LEFT in ev3.buttons.pressed():
+        ev3.screen.print("LEFT - Retracting")
+        catch.retract()
+
+    if Button.RIGHT in ev3.buttons.pressed():
+        ev3.screen.print("RIGHT - Extending") 
+        catch.extend()
+
     if Button.UP in ev3.buttons.pressed():
-        ev3.screen.print("UP button pressed") # Call the check_height_of_elevator() function on each loop
+        ev3.screen.print("UP") 
         shift_up()
 
     if Button.DOWN in ev3.buttons.pressed():
-        ev3.screen.print("DOWN button pressed")
+        ev3.screen.print("DOWN")
         print("DOWN pressed")
         shift_down()
         cage.stop()
 
     height = check_height_of_elevator()
+
+    # The cage has been sitting in the mids.  
+    if catch.status() == 'Extended' and cage.status() == 'Engaged' and height < 6:
+        ev3.screen.print("Retracting catch")
+        catch.retract()
 
     if height > 34:
         lights.setColor(colors[0])
@@ -195,15 +247,23 @@ while True:
         dropped_time = time()
     elif height < 5:
         lights.setColor(colors[14])
+        catch.extend()
     else:
         color_index = int(((height - 3) / 2) % 16)
         lights.setColor(colors[-color_index])
     
-    if cage.status() == 'Dropped' and time() - dropped_time >= 30:
+    if cage.status() == 'Dropped' and time() - dropped_time >= 60:
         ev3.screen.print("Engaging elevator!")
         print("Engaging elevator!")
         shift_up()
 
+#    # The cage has been sitting in the mids.  
+#    if catch.status() == 'Retract':
+#        ev3.screen.print("Retracting catch")
+#        catch.retract()
+
+    if catch.should_stop():
+        catch.stop()
 
     # Check if it's been 5 seconds since the last print time
     if time() - last_print_time >= 5:
@@ -212,14 +272,14 @@ while True:
         ev3.screen.clear()
         ev3.screen.print("Distance to Top")
         ev3.screen.print(height - 4)
-        ev3.screen.print("Status: " + cage.status())
+        ev3.screen.print("Cage: " + cage.status())
         ev3.screen.print("Color: " + lights.current())
+        ev3.screen.print("Catch: " + catch.status())
 
         print("Height: " + str(height))
 
         # Update the last_print_time timestamp variable
         last_print_time = time()
 
-    # Add a 100ms delay between iterations to reduce CPU usage
     wait(1000)
 
