@@ -1,8 +1,6 @@
+FindLastFile:
 
-;CueCard := "e:\obsRecordings\cuecard.ini"
-;OBSRecording =  e:\obsRecordings
-;Dailies = e:\Dailies
-
+Time_Orig := 0 ;A_Now
 Loop, %OBSRecording%\*.mp4
 
 {
@@ -13,9 +11,11 @@ Loop, %OBSRecording%\*.mp4
           SplitPath, A_LoopFileLongPath, OutFileName, OutDir, OutExtension, OutNameNoExt, OutDrive
           File := A_LoopFileName
 
+          AbsFilePath := A_LoopFileLongPath
+
      }
 
 }
 
 MP4 := OutDir . "\" OutNameNoExt . ".mp4"
-FLV := OutDir . "\" OutNameNoExt . ".flv"
+;FLV := OutDir . "\" OutNameNoExt . ".flv"

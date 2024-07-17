@@ -1,7 +1,7 @@
 #Singleinstance force
 ;#Persistent
 
-Folder = e:\obsRecordings
+Folder = e:\Footage
 NewFileName := "blah.mp4"
 
 Loop, %Folder%\*.mp4
@@ -18,12 +18,12 @@ Loop, %Folder%\*.mp4
 
 }
 
-MsgBox, Newest file in  %File%    OFN %OutFileName%    NoExt %OutNameNoExt%    %OutDir%    ; this command works
+;MsgBox, Newest file in  %File%    OFN %OutFileName%    NoExt %OutNameNoExt%    %OutDir%    ; this command works
 
 MP4 := OutDir . "\" OutNameNoExt . ".mp4"
-MsgBox, %MP4%
+;MsgBox, %MP4%
 FileRecycle, %MP4%
-FLV := OutDir . "\" OutNameNoExt . ".flv"
-MsgBox, %FLV%
-FileRecycle, %FLV%
+;FLV := OutDir . "\" OutNameNoExt . ".flv"
+;MsgBox, %FLV%
+;FileRecycle, %FLV%
 Return

@@ -1,5 +1,5 @@
 
 CueCard := "e:\obsRecordings\cuecard.ini"
-OBSRecording =  e:\obsRecordings
+OBSRecording =  e:\Footage
 Dailies = e:\Dailies
 
