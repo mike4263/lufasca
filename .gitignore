@@ -1,2 +1,6 @@
 *~
 *swp
+splits
+__pycache__
+*.lnk
+*.log
