@@ -10,11 +10,16 @@ from pybricks.ev3devices import Motor, TouchSensor
 from pybricks.parameters import Port
 import math
 
-MIDS_INTERVAL = 23
-ROADRUNNER_RAISE = .7
-HANG_TIME = 3000
-TOTAL_DROP_TIME = 75
 
+ABOVE_INTERVAL = 23
+ABOVE_PAUSE = 3000
+MIDS_INTERVAL = 46 
+TOTAL_DROP_TIME = 69
+ROADRUNNER_RAISE = .7
+HANG_TIME = 1000
+
+# TODO: this is too aggressive.  need to activate sooner'
+#       elevator is really fast on full speed now!!!!  try 100 / 75
 MAX_HEIGHT =  2.6
 ABOVE_CATCH_HEIGHT = 3.6
 ABOVE_CATCH_SPEED = 900
@@ -34,6 +39,8 @@ class Catch():
     def print_angle(self):
         print("mids ::" + str(self._motor.angle()))
 
+    def already_extended(self):
+        self._status = 'Extended'
 
     def extend(self, force=False):
         if self._status == 'Retracted' or force:
@@ -70,6 +77,8 @@ class Catch():
             self._status = reset_status
 
     def _run_motor(self, position): 
+        # TODO: Replace this with run_time
+        # https://mumin.pl/Probot/PROBOT/university_of_silesia_edures_foundation/basic_motors/O1/O1.html#:~:text=The%20rated%20maximum%20speed%20of%20the%20Lego%20EV3%20large%20(medium,and%20different%20number%20of%20rotations.
         self._motor.dc(position)
 
     def status(self):
@@ -109,6 +118,10 @@ class AboveCatch():
             #self._motor.run_until_stalled(300, then=Stop.COAST)
             self._status = 'Retracted'
             self.print_angle()
+
+
+    def already_extended(self):
+        self._status = 'Extended'
 
     def should_stop(self):
         pass
@@ -249,7 +262,8 @@ motor = Motor(Port.A)
 catch_motor = Motor(Port.B) 
 above_motor = Motor(Port.C)
 
-alt_shift = TouchSensor(Port.S2)
+mids_shift = TouchSensor(Port.S2)
+above_shift = TouchSensor(Port.S3)
 
 cage = Cage(motor)
 cage.stop()
@@ -309,50 +323,103 @@ dropped_time = 0
 last_height = 0
 drop_height = 0
 
+def road_runner():
+    ev3.screen.print("Road runner")
+    print("Road runner")
+    cage.engage()
+    drop_height = 0
+    catch.retract()
+    wait(HANG_TIME)
+    cage.drop()
+
+def drop_from_mids(height):
+    ev3.screen.print("Drop from Mids")
+    print("Hang time")
+    drop_height = height
+    cage.engage()
+    dropped_time = time()
+
+def drop_from_above():
+    ev3.screen.print("Drop from above")
+    catch.extend()
+    wait(ABOVE_PAUSE)
+    above_catch.retract()
+    dropped_time = time()
 
 while True:
-    if not alt_shift.pressed() and Button.LEFT in ev3.buttons.pressed():
-        ev3.screen.print("LEFT - Mids Retracting")
-        wait(100)
-        catch.retract(force=True)
 
-    if not alt_shift.pressed() and Button.RIGHT in ev3.buttons.pressed():
-        ev3.screen.print("RIGHT - Mids Extending") 
-        wait(100)
-        catch.extend(force=True)
+    if above_shift.pressed():
+        if Button.LEFT in ev3.buttons.pressed():
+            ev3.screen.print("Above Retracting")
+            wait(100)
+            above_catch.retract(force=True)
 
-    if not alt_shift.pressed() and Button.CENTER in ev3.buttons.pressed():
-        ev3.screen.print("CENTER - Mids Prime") 
-        wait(100)
-        catch.prime()
+        if Button.RIGHT in ev3.buttons.pressed():
+            ev3.screen.print("Above Extending")
+            wait(100)
+            above_catch.extend(force=True)
+            pass
 
-    if not alt_shift.pressed() and Button.UP in ev3.buttons.pressed():
-        ev3.screen.print("Cage Engage") 
-        wait(100)
-        cage.engage()
+        if Button.DOWN in ev3.buttons.pressed():
+            ev3.screen.print("Dropping from Above")
+            wait(100)
+            drop_from_above()
 
-    if alt_shift.pressed() and Button.UP in ev3.buttons.pressed():
-        ev3.screen.print("Cage Engage (no shift)") 
-        wait(100)
-        cage.engage(no_shift=True)
+    elif mids_shift.pressed():
+        if Button.LEFT in ev3.buttons.pressed():
+            ev3.screen.print("Mids Retracting")
+            wait(100)
+            catch.retract(force=True)
 
-    if Button.DOWN in ev3.buttons.pressed():
-        ev3.screen.print("Cage Stopping")
-        wait(100)
-        print("DOWN pressed")
-        cage.stop()
+        if Button.RIGHT in ev3.buttons.pressed():
+            ev3.screen.print("Mids Extending") 
+            wait(100)
+            catch.extend(force=True)
+
+        if Button.CENTER in ev3.buttons.pressed():
+            ev3.screen.print("Mids Prime") 
+            wait(100)
+            catch.prime()
         
-    if alt_shift.pressed() and Button.LEFT in ev3.buttons.pressed():
-        ev3.screen.print("Above Retracting")
-        wait(100)
-        above_catch.retract(force=True)
+        if Button.DOWN in ev3.buttons.pressed():
+            ev3.screen.print("Mids hang time!") 
+            wait(100)
+            drop_from_mids(last_height)
 
-    if alt_shift.pressed() and Button.RIGHT in ev3.buttons.pressed():
-        ev3.screen.print("Above Extending")
-        wait(100)
-        above_catch.extend(force=True)
+        if Button.UP in ev3.buttons.pressed():
+            ev3.screen.print("Mids go above") 
+            wait(100)
+            cage.engage()
+            catch.retract()
+        
+    else:
+        if Button.UP in ev3.buttons.pressed():
+            ev3.screen.print("Cage Engage") 
+            wait(100)
+            cage.engage()
 
+        if Button.LEFT in ev3.buttons.pressed():
+            ev3.screen.print("Mids Already Extended!!") 
+            wait(100)
+            catch.already_extended()
 
+        if Button.RIGHT in ev3.buttons.pressed():
+            ev3.screen.print("Above Already Extended!!") 
+            wait(100)
+            above_catch.already_extended()
+
+        if Button.CENTER in ev3.buttons.pressed():
+            ev3.screen.print("Cage Engage (no shift)") 
+            wait(100)
+            cage.engage(no_shift=True)
+
+        if Button.DOWN in ev3.buttons.pressed():
+            ev3.screen.print("Cage Stopping")
+            wait(100)
+            print("DOWN pressed")
+            cage.stop()
+
+    
     height = check_height_of_elevator(cage, last_height)
 
     if height > MIN_HEIGHT:
@@ -372,11 +439,16 @@ while True:
     
     if cage.status() == 'Dropped':
         
+        # check whether we are above
+        if above_catch.status() == 'Extended' and dropped_time > 0 and time() - dropped_time >= ABOVE_INTERVAL: 
+            drop_from_above()
+
+
         # check whether we are sitting in the mids
-        if catch.status() == 'Extended' and dropped_time > 0 and time() - dropped_time >= MIDS_INTERVAL:
-            print("Hang time")
-            drop_height = height
-            cage.engage()
+        elif catch.status() == 'Extended' and dropped_time > 0 and time() - dropped_time >= MIDS_INTERVAL:
+            drop_from_mids(height)
+
+        # check whether we are under            
         elif dropped_time > 0 and time() - dropped_time >= TOTAL_DROP_TIME:
             ev3.screen.print("Engaging elevator!")
             print("Engaging elevator!")
@@ -384,28 +456,27 @@ while True:
             dropped_time = 0
     
     if cage.status() == 'Engaged' and catch.status() == 'Extended' and drop_height != 0 and drop_height - height > ROADRUNNER_RAISE:
-        print("Road runner")
-        drop_height = 0
-        catch.retract()
-        wait(HANG_TIME)
-        cage.drop()
+        road_runner()
 
+    # TODO: replace with run timed
     if catch.should_stop():
+        ev3.screen.print("caught stop mids")
         print("Caught stop - mids")
-        drop_height = 0
-        catch.stop()
-    
-    if above_catch.should_stop():
-        print("Caught stop - above")
+        # why is this set drop height to zero?
         #drop_height = 0
-        above_catch.stop()
+        catch.stop()
 
-    # Check if it's been 1 seconds since the last print time
-    if time() - last_print_time >= 1:
+    # Check if it's been 3 seconds since the last print time
+    if time() - last_print_time >= 3:
 
         # Print the current height on the EV3DEV display
         ev3.screen.clear()
-        ev3.screen.print("Distance : " + str(height))
+
+        if (dropped_time):
+            ev3.screen.print("Droptime : " + str(dropped_time))
+        else:
+            ev3.screen.print("Distance : " + str(height))
+
         # TODO: Add speed 
         ev3.screen.print("Cage: " + cage.status())
         #ev3.screen.print("Color: " + lights.current())
