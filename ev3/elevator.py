@@ -20,7 +20,7 @@ HANG_TIME = 1000
 
 # TODO: this is too aggressive.  need to activate sooner'
 #       elevator is really fast on full speed now!!!!  try 100 / 75
-MAX_HEIGHT =  2.6
+MAX_HEIGHT =  3
 ABOVE_CATCH_HEIGHT = 3.6
 ABOVE_CATCH_SPEED = 900
 MIN_HEIGHT =  34
@@ -29,7 +29,7 @@ class Catch():
     _status = None
     _motor = None
     _stop_time = 0
-    _last_position = 0
+    _last_speed = 0
 
     def __init__(self, motor : Motor):
         self._status = 'Retracted'
@@ -41,45 +41,35 @@ class Catch():
 
     def already_extended(self):
         self._status = 'Extended'
+        self._last_speed = 1050
 
     def extend(self, force=False):
         if self._status == 'Retracted' or force:
-            self.stop()
-            self._update('Retracted', 'Extended', 100)
-            self._stop_time = time() + 30
+            self._update('Retracted', 'Extended', 1050, time=30000)
             self.print_angle()
 
     def retract(self, force=True):
         if self._status == 'Extended' or force:
             self.stop()
-            self._update('Extended', 'Retracted', -100)
-            self._stop_time = time() + 5 
+            self._update('Extended', 'Retracted', -1050, time=5000)
             self.print_angle()
 
     def prime(self):
-        self._stop_time = time() + 15
-        self._run_motor(self._last_position)
-
-    def should_stop(self):
-        return self._stop_time != 0 and self._stop_time - time() <= 0
+        self._run_motor(self._last_speed, time=60000)
 
     def stop(self):
-        self._run_motor(0) 
-        print("stopping " + str(self._stop_time))
-        self.print_angle()
-        self._stop_time = 0
+        self._motor.stop()
 
-    def _update(self, check_status, reset_status, position): 
-        self._last_position = position
+    def _update(self, check_status, reset_status, speed, time=5000): 
+        self._last_speed = speed
         # this is unecessary now that we are doing this in the method
         if self._status == check_status:
-            self._run_motor(self._last_position)
+            self._run_motor(self._last_speed, time)
             self._status = reset_status
 
-    def _run_motor(self, position): 
-        # TODO: Replace this with run_time
+    def _run_motor(self, speed, time): 
         # https://mumin.pl/Probot/PROBOT/university_of_silesia_edures_foundation/basic_motors/O1/O1.html#:~:text=The%20rated%20maximum%20speed%20of%20the%20Lego%20EV3%20large%20(medium,and%20different%20number%20of%20rotations.
-        self._motor.dc(position)
+        self._motor.run_time(speed, time, then=Stop.COAST, wait=False)
 
     def status(self):
         return self._status
@@ -351,71 +341,71 @@ while True:
     if above_shift.pressed():
         if Button.LEFT in ev3.buttons.pressed():
             ev3.screen.print("Above Retracting")
-            wait(100)
+            wait(350)
             above_catch.retract(force=True)
 
         if Button.RIGHT in ev3.buttons.pressed():
             ev3.screen.print("Above Extending")
-            wait(100)
+            wait(350)
             above_catch.extend(force=True)
             pass
 
         if Button.DOWN in ev3.buttons.pressed():
             ev3.screen.print("Dropping from Above")
-            wait(100)
+            wait(350)
             drop_from_above()
 
     elif mids_shift.pressed():
         if Button.LEFT in ev3.buttons.pressed():
             ev3.screen.print("Mids Retracting")
-            wait(100)
+            wait(350)
             catch.retract(force=True)
 
         if Button.RIGHT in ev3.buttons.pressed():
             ev3.screen.print("Mids Extending") 
-            wait(100)
+            wait(350)
             catch.extend(force=True)
 
         if Button.CENTER in ev3.buttons.pressed():
             ev3.screen.print("Mids Prime") 
-            wait(100)
+            wait(350)
             catch.prime()
         
         if Button.DOWN in ev3.buttons.pressed():
             ev3.screen.print("Mids hang time!") 
-            wait(100)
+            wait(350)
             drop_from_mids(last_height)
 
         if Button.UP in ev3.buttons.pressed():
             ev3.screen.print("Mids go above") 
-            wait(100)
+            wait(350)
             cage.engage()
             catch.retract()
         
     else:
         if Button.UP in ev3.buttons.pressed():
             ev3.screen.print("Cage Engage") 
-            wait(100)
+            wait(350)
             cage.engage()
 
         if Button.LEFT in ev3.buttons.pressed():
             ev3.screen.print("Mids Already Extended!!") 
-            wait(100)
+            wait(350)
             catch.already_extended()
 
         if Button.RIGHT in ev3.buttons.pressed():
             ev3.screen.print("Above Already Extended!!") 
-            wait(100)
+            wait(350)
             above_catch.already_extended()
 
         if Button.CENTER in ev3.buttons.pressed():
             ev3.screen.print("Cage Engage (no shift)") 
-            wait(100)
+            wait(350)
             cage.engage(no_shift=True)
 
         if Button.DOWN in ev3.buttons.pressed():
             ev3.screen.print("Cage Stopping")
-            wait(100)
+            wait(350)
             print("DOWN pressed")
             cage.stop()
 
@@ -455,16 +445,11 @@ while True:
             cage.engage()
             dropped_time = 0
     
+
+    # BUG: This doesnt work
     if cage.status() == 'Engaged' and catch.status() == 'Extended' and drop_height != 0 and drop_height - height > ROADRUNNER_RAISE:
         road_runner()
 
-    # TODO: replace with run timed
-    if catch.should_stop():
-        ev3.screen.print("caught stop mids")
-        print("Caught stop - mids")
-        # why is this set drop height to zero?
-        #drop_height = 0
-        catch.stop()
 
     # Check if it's been 3 seconds since the last print time
     if time() - last_print_time >= 3:
@@ -472,6 +457,8 @@ while True:
         # Print the current height on the EV3DEV display
         ev3.screen.clear()
 
+
+        # TODO: Fix drop time toggle display
         if (dropped_time):
             ev3.screen.print("Droptime : " + str(dropped_time))
         else:
