@@ -15,15 +15,15 @@ ABOVE_INTERVAL = 23
 ABOVE_PAUSE = 3000
 MIDS_INTERVAL = 46 
 TOTAL_DROP_TIME = 69
-ROADRUNNER_RAISE = .7
+ROADRUNNER_RAISE = 1.2 
 HANG_TIME = 1000
 
 # TODO: this is too aggressive.  need to activate sooner'
 #       elevator is really fast on full speed now!!!!  try 100 / 75
-MAX_HEIGHT =  3
-ABOVE_CATCH_HEIGHT = 3.6
+MAX_HEIGHT =  1.57
+ABOVE_CATCH_HEIGHT = 2.7
 ABOVE_CATCH_SPEED = 900
-MIN_HEIGHT =  34
+MIN_HEIGHT =  34.0
 
 class Catch():
     _status = None
@@ -135,13 +135,17 @@ class Cage():
     # TODO: make a function to operate in autonomous mode
     _auto = None
     _status = None
+    _liftHeight = 0
 
     def __init__(self, motor):
         self._status = 'Stopped'
         self._motor = motor
         self.print_position('init')
 
-    def engage(self, no_shift=False):
+    def engage(self, no_shift=False, lift_height=None):
+        if lift_height:
+            self._liftHeight = lift_height
+
         if not no_shift:
             #self._status = 'Engaged'
             self._run_to_position(-39, 'Dropped', 'Engaged')
@@ -151,13 +155,19 @@ class Cage():
 
         self.print_position('engage')
 
-    def drop(self):
+    def drop(self, height):
         #self._status = 'Dropped'
         self._run_to_position(0, 'Engaged', 'Dropped')
         self.print_position('drop')
+        self._liftHeight = 0
 
-    def stop(self):
-        self.drop()
+    # this is the height that the cage is at when it is engaged
+    # NOT the drop height 
+    def lift_height(self):
+        return self._liftHeight
+
+    def stop(self, height):
+        self.drop(height)
         self._status = 'Stopped'
 
     def status(self):
@@ -256,7 +266,7 @@ mids_shift = TouchSensor(Port.S2)
 above_shift = TouchSensor(Port.S3)
 
 cage = Cage(motor)
-cage.stop()
+cage.stop(0)
 catch = Catch(catch_motor)
 catch.stop()
 
@@ -282,8 +292,9 @@ colors = [
 ]
 
 
-
-def check_height_of_elevator(cage, last_height):
+# BUG: Why do we need this at all?
+def check_height_of_elevator(cage):
+    global last_height
     results = []
     for i in range(20):
         results.append(ToF.readToFin())
@@ -292,18 +303,23 @@ def check_height_of_elevator(cage, last_height):
     height = min(results)
 
     if cage.status() == 'Engaged':
-        # check if the difference between the current height and the last height is greater than 1 inch
-        if abs(height - last_height) > .5:
-            # update the last_height variable with the current height
-            last_height = height
-        else:
-            # ignore the current reading and use the last_height instead
-            print("Ignoring " + str(height) + " since it's not at least 1 inch different from " + str(last_height))
+        if abs(height) < .5:
+            print("Ignoring reading of 0")
             height = last_height
+        # # check if the difference between the current height and the last height is greater than 1 inch
+        # elif abs(height - last_height) > .5:
+        #     # update the last_height variable with the current height
+        #     last_height = height
+        # else:
+        #     # ignore the current reading and use the last_height instead
+        #     print("Ignoring " + str(height) + " since it's not at least 1 inch different from " + str(last_height))
+        #     height = last_height
     else:
         # take all readings if not engaged
         last_height = height
 
+    last_height = height
+    #print(height)
     return height
 
 
@@ -311,22 +327,22 @@ def check_height_of_elevator(cage, last_height):
 last_print_time = 0
 dropped_time = 0
 last_height = 0
-drop_height = 0
+#drop_height = 0
 
-def road_runner():
+def road_runner(height):
     ev3.screen.print("Road runner")
     print("Road runner")
-    cage.engage()
-    drop_height = 0
+    #cage.engage()
     catch.retract()
     wait(HANG_TIME)
-    cage.drop()
+    cage.drop(height)
 
 def drop_from_mids(height):
     ev3.screen.print("Drop from Mids")
-    print("Hang time")
-    drop_height = height
-    cage.engage()
+    #drop_height = height
+    print("Hang time from " + str(height))
+    cage.engage(lift_height=height)
+    global dropped_time
     dropped_time = time()
 
 def drop_from_above():
@@ -334,6 +350,7 @@ def drop_from_above():
     catch.extend()
     wait(ABOVE_PAUSE)
     above_catch.retract()
+    global dropped_time
     dropped_time = time()
 
 while True:
@@ -407,10 +424,10 @@ while True:
             ev3.screen.print("Cage Stopping")
             wait(350)
             print("DOWN pressed")
-            cage.stop()
+            cage.stop(check_height_of_elevator(cage))
 
     
-    height = check_height_of_elevator(cage, last_height)
+    height = check_height_of_elevator(cage)
 
     if height > MIN_HEIGHT:
         lights.setColor(colors[0])
@@ -418,10 +435,11 @@ while True:
         # 4 & 5
     elif height < MAX_HEIGHT and cage.status() == 'Engaged':
         print("dropping due to height :: " + str(height))
-        cage.drop()
+        cage.drop(height)
         dropped_time = time()
     elif height < ABOVE_CATCH_HEIGHT and cage.status() == 'Engaged':
-        lights.setColor(colors[14])
+        #lights.setColor(colors[14])
+        print("extending above catch :: " + str(height))
         above_catch.extend()
     else:
         color_index = int(((height - 3) / 2) % 16)
@@ -445,14 +463,15 @@ while True:
             cage.engage()
             dropped_time = 0
     
-
-    # BUG: This doesnt work
-    if cage.status() == 'Engaged' and catch.status() == 'Extended' and drop_height != 0 and drop_height - height > ROADRUNNER_RAISE:
-        road_runner()
+    if cage.status() == 'Engaged' and catch.status() == 'Extended' and cage.lift_height() != 0 and (cage.lift_height() - height) > ROADRUNNER_RAISE:
+        road_runner(height)
 
 
     # Check if it's been 3 seconds since the last print time
-    if time() - last_print_time >= 3:
+    if time() - last_print_time >= 1:
+
+        # Update the last_print_time timestamp variable
+        last_print_time = time()
 
         # Print the current height on the EV3DEV display
         ev3.screen.clear()
@@ -469,10 +488,8 @@ while True:
         #ev3.screen.print("Color: " + lights.current())
         ev3.screen.print("Mids: " + catch.status())
         ev3.screen.print("Above: " + above_catch.status())
-        print("Height: " + str(height))
-
-        # Update the last_print_time timestamp variable
-        last_print_time = time()
+        print("Height: " + str(height) + " time: " + str(last_print_time) )
+        #print("drop height= " + str( (cage.lift_height() - height) ))
 
     # we wait 60ms checking the height
     wait(1)
