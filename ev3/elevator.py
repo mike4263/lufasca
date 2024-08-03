@@ -4,7 +4,7 @@ from pybricks.ev3devices import *
 from pybricks.hubs import EV3Brick
 from pybricks.parameters import *
 from pybricks.tools import *
-from mindsensorsPYB import DIST_ToF, mindsensors_i2c
+from mindsensorsPYB import DIST_ToF, PPS58, mindsensors_i2c
 from time import time
 from pybricks.ev3devices import Motor, TouchSensor
 from pybricks.parameters import Port
@@ -17,6 +17,7 @@ MIDS_INTERVAL = 46
 TOTAL_DROP_TIME = 69
 ROADRUNNER_RAISE = 1.2 
 HANG_TIME = 1000
+DESIRED_PRESSURE = 2900
 
 # TODO: this is too aggressive.  need to activate sooner'
 #       elevator is really fast on full speed now!!!!  try 100 / 75
@@ -251,6 +252,8 @@ class LED():
 ev3 = EV3Brick()
 #streamerbot = Streamerbot()
 ToF = DIST_ToF(Port.S1, 0x02)
+gauge = PPS58(Port.S4)
+gauge.unitSelect('b')
 tower = TowerHeight()
 
 
@@ -293,14 +296,17 @@ colors = [
 
 
 # BUG: Why do we need this at all?
-def check_height_of_elevator(cage):
+def check_sensors(cage):
     global last_height
-    results = []
+    height_results = []
+    pressure_results = []
     for i in range(20):
-        results.append(ToF.readToFin())
+        height_results.append(ToF.readToFin())
+        pressure_results.append(gauge.readAbsolute())
         wait(3)
 
-    height = min(results)
+    height = min(height_results)
+    pressure = max(pressure_results)
 
     if cage.status() == 'Engaged':
         if abs(height) < .5:
@@ -320,7 +326,7 @@ def check_height_of_elevator(cage):
 
     last_height = height
     #print(height)
-    return height
+    return (height, pressure)
 
 
 # Initialize the last_print_time timestamp variable
@@ -353,81 +359,73 @@ def drop_from_above():
     global dropped_time
     dropped_time = time()
 
+def print_and_pause(msg):
+    ev3.screen.print(msg)
+    print(msg)
+    wait(350)
+
 while True:
 
     if above_shift.pressed():
         if Button.LEFT in ev3.buttons.pressed():
-            ev3.screen.print("Above Retracting")
-            wait(350)
+            print_and_pause("Above Retracting")
             above_catch.retract(force=True)
 
         if Button.RIGHT in ev3.buttons.pressed():
-            ev3.screen.print("Above Extending")
-            wait(350)
+            print_and_pause("Above Extending")
             above_catch.extend(force=True)
             pass
 
         if Button.DOWN in ev3.buttons.pressed():
-            ev3.screen.print("Dropping from Above")
-            wait(350)
+            print_and_pause("Dropping from Above")
             drop_from_above()
 
     elif mids_shift.pressed():
         if Button.LEFT in ev3.buttons.pressed():
-            ev3.screen.print("Mids Retracting")
-            wait(350)
+            print_and_pause("Mids Retracting")
             catch.retract(force=True)
 
         if Button.RIGHT in ev3.buttons.pressed():
-            ev3.screen.print("Mids Extending") 
-            wait(350)
+            print_and_pause("Mids Extending") 
             catch.extend(force=True)
 
         if Button.CENTER in ev3.buttons.pressed():
-            ev3.screen.print("Mids Prime") 
-            wait(350)
+            print_and_pause("Mids Prime") 
             catch.prime()
         
         if Button.DOWN in ev3.buttons.pressed():
-            ev3.screen.print("Mids hang time!") 
-            wait(350)
+            print_and_pause("Mids hang time!") 
             drop_from_mids(last_height)
 
         if Button.UP in ev3.buttons.pressed():
-            ev3.screen.print("Mids go above") 
-            wait(350)
+            print_and_pause("Mids go above") 
             cage.engage()
             catch.retract()
         
     else:
         if Button.UP in ev3.buttons.pressed():
-            ev3.screen.print("Cage Engage") 
-            wait(350)
+            print_and_pause("Cage Engage") 
             cage.engage()
 
         if Button.LEFT in ev3.buttons.pressed():
-            ev3.screen.print("Mids Already Extended!!") 
-            wait(350)
+            print_and_pause("Mids Already Extended!!") 
             catch.already_extended()
 
         if Button.RIGHT in ev3.buttons.pressed():
-            ev3.screen.print("Above Already Extended!!") 
-            wait(350)
+            print_and_pause("Above Already Extended!!") 
             above_catch.already_extended()
 
         if Button.CENTER in ev3.buttons.pressed():
-            ev3.screen.print("Cage Engage (no shift)") 
-            wait(350)
+            print_and_pause("Cage Engage (no shift)") 
             cage.engage(no_shift=True)
 
         if Button.DOWN in ev3.buttons.pressed():
-            ev3.screen.print("Cage Stopping")
-            wait(350)
+            print_and_pause("Cage Stopping")
             print("DOWN pressed")
-            cage.stop(check_height_of_elevator(cage))
+            cage.stop(last_height)
 
     
-    height = check_height_of_elevator(cage)
+    (height, pressure) = check_sensors(cage)
 
     if height > MIN_HEIGHT:
         lights.setColor(colors[0])
@@ -463,8 +461,12 @@ while True:
             cage.engage()
             dropped_time = 0
     
+
+    # BUG: Check where the cage is out
     if cage.status() == 'Engaged' and catch.status() == 'Extended' and cage.lift_height() != 0 and (cage.lift_height() - height) > ROADRUNNER_RAISE:
         road_runner(height)
+
+    # BUG: need a safety so cage never runs into retracted level!!!
 
 
     # Check if it's been 3 seconds since the last print time
@@ -479,7 +481,7 @@ while True:
 
         # TODO: Fix drop time toggle display
         if (dropped_time):
-            ev3.screen.print("Droptime : " + str(dropped_time))
+            ev3.screen.print("Droptime : " + str(time() - dropped_time))
         else:
             ev3.screen.print("Distance : " + str(height))
 
@@ -488,7 +490,7 @@ while True:
         #ev3.screen.print("Color: " + lights.current())
         ev3.screen.print("Mids: " + catch.status())
         ev3.screen.print("Above: " + above_catch.status())
-        print("Height: " + str(height) + " time: " + str(last_print_time) )
+        print("Height: " + str(height) + " pressure: " + str(pressure) )
         #print("drop height= " + str( (cage.lift_height() - height) ))
 
     # we wait 60ms checking the height
