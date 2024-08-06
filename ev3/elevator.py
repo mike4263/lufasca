@@ -9,28 +9,32 @@ from time import time
 from pybricks.ev3devices import Motor, TouchSensor
 from pybricks.parameters import Port
 import math
+from pybricks.messaging import BluetoothMailboxServer, LogicMailbox
 
 
 ABOVE_INTERVAL = 23
 ABOVE_PAUSE = 3000
-MIDS_INTERVAL = 46 
+MIDS_INTERVAL = 23 
 TOTAL_DROP_TIME = 69
-ROADRUNNER_RAISE = 1.2 
+ROADRUNNER_RAISE = .75 
 HANG_TIME = 1000
 DESIRED_PRESSURE = 2900
+LOW_PRESSURE = 2700
 
-# TODO: this is too aggressive.  need to activate sooner'
-#       elevator is really fast on full speed now!!!!  try 100 / 75
-MAX_HEIGHT =  1.57
+MAX_HEIGHT =  1.75
 ABOVE_CATCH_HEIGHT = 2.7
 ABOVE_CATCH_SPEED = 900
 MIN_HEIGHT =  34.0
 
+GARAGE_DOOR = True
+
 class Catch():
     _status = None
+    _primed = False
+
     _motor = None
     _stop_time = 0
-    _last_speed = 0
+    _last_speed = -1050
 
     def __init__(self, motor : Motor):
         self._status = 'Retracted'
@@ -38,7 +42,7 @@ class Catch():
         self.print_angle()
 
     def print_angle(self):
-        print("mids ::" + str(self._motor.angle()))
+        print("mids angle ::" + str(self._motor.angle()))
 
     def already_extended(self):
         self._status = 'Extended'
@@ -46,29 +50,45 @@ class Catch():
 
     def extend(self, force=False):
         if self._status == 'Retracted' or force:
-            self._update('Retracted', 'Extended', 1050, time=30000)
+            self._update('Retracted', 'Extended', 1050, time=25000)
             self.print_angle()
 
     def retract(self, force=True):
         if self._status == 'Extended' or force:
             self.stop()
-            self._update('Extended', 'Retracted', -1050, time=5000)
+            self._update('Extended', 'Retracted', -1050, time=25000)
             self.print_angle()
 
+    def toggle(self):
+        self._primed = not self._primed
+        if self._primed:
+            self.prime()
+        else:
+            self.stop()
+
     def prime(self):
-        self._run_motor(self._last_speed, time=60000)
+        self._run_motor(self._last_speed, time=180000)
 
     def stop(self):
+        print("stopping catch motor")
         self._motor.stop()
+
+    def running(self):
+        self.print_angle()
+        return self._motor.speed() > 0
 
     def _update(self, check_status, reset_status, speed, time=5000): 
         self._last_speed = speed
         # this is unecessary now that we are doing this in the method
         if self._status == check_status:
-            self._run_motor(self._last_speed, time)
+            self._shift_motor(self._last_speed, time)
             self._status = reset_status
 
     def _run_motor(self, speed, time): 
+        # https://mumin.pl/Probot/PROBOT/university_of_silesia_edures_foundation/basic_motors/O1/O1.html#:~:text=The%20rated%20maximum%20speed%20of%20the%20Lego%20EV3%20large%20(medium,and%20different%20number%20of%20rotations.
+        self._motor.run_time(speed, time, then=Stop.COAST, wait=False)
+
+    def _shift_motor(self, speed, time): 
         # https://mumin.pl/Probot/PROBOT/university_of_silesia_edures_foundation/basic_motors/O1/O1.html#:~:text=The%20rated%20maximum%20speed%20of%20the%20Lego%20EV3%20large%20(medium,and%20different%20number%20of%20rotations.
         self._motor.run_time(speed, time, then=Stop.COAST, wait=False)
 
@@ -87,7 +107,7 @@ class AboveCatch():
         self.print_angle()
 
     def print_angle(self):
-        print("above ::" + str(self._motor.angle()))
+        print("above angle ::" + str(self._motor.angle()))
 
     def extend(self, force=False):
         #self._update('Retracted', 'Extended', 1, force)
@@ -102,7 +122,7 @@ class AboveCatch():
         if self._status == 'Extended' or force:
             #self._run_motor(position)
             #self._motor.run_target(300, self._motor.angle() * -1, then=Stop.HOLD, wait=False)
-            self._motor.run_time(-600, 2500, then=Stop.COAST, wait=True)
+            self._motor.run_time(-600, 2200, then=Stop.COAST, wait=True)
             self._motor.reset_angle(0)
 
 
@@ -252,8 +272,6 @@ class LED():
 ev3 = EV3Brick()
 #streamerbot = Streamerbot()
 ToF = DIST_ToF(Port.S1, 0x02)
-gauge = PPS58(Port.S4)
-gauge.unitSelect('b')
 tower = TowerHeight()
 
 
@@ -275,6 +293,14 @@ catch.stop()
 
 above_catch = AboveCatch(above_motor)
 #above_catch.stop()
+
+server = BluetoothMailboxServer()
+mbox = LogicMailbox('garage', server)
+
+if GARAGE_DOOR:
+    print('waiting for connection...')
+    server.wait_for_connection()
+    print('connected!')
 
 colors = [
     "FF0000",  # Red
@@ -299,14 +325,14 @@ colors = [
 def check_sensors(cage):
     global last_height
     height_results = []
-    pressure_results = []
+    #pressure_results = []
     for i in range(20):
         height_results.append(ToF.readToFin())
-        pressure_results.append(gauge.readAbsolute())
+        #pressure_results.append(gauge.readAbsolute())
         wait(3)
 
     height = min(height_results)
-    pressure = max(pressure_results)
+    #pressure = max(pressure_results)
 
     if cage.status() == 'Engaged':
         if abs(height) < .5:
@@ -326,38 +352,61 @@ def check_sensors(cage):
 
     last_height = height
     #print(height)
-    return (height, pressure)
+    return (height)
 
 
 # Initialize the last_print_time timestamp variable
 last_print_time = 0
+last_gauge_time = 0
+
 dropped_time = 0
 last_height = 0
-#drop_height = 0
+drop_height = 0
 
 def road_runner(height):
     ev3.screen.print("Road runner")
     print("Road runner")
     #cage.engage()
-    catch.retract()
-    wait(HANG_TIME)
+    #wait(HANG_TIME)
     cage.drop(height)
+    global drop_height
+    drop_height = 0
 
 def drop_from_mids(height):
     ev3.screen.print("Drop from Mids")
-    #drop_height = height
+    global drop_height
+    drop_height = height
     print("Hang time from " + str(height))
     cage.engage(lift_height=height)
+    catch.retract()
     global dropped_time
     dropped_time = time()
 
 def drop_from_above():
     ev3.screen.print("Drop from above")
+
     catch.extend()
     wait(ABOVE_PAUSE)
     above_catch.retract()
     global dropped_time
     dropped_time = time()
+
+def open_garage_door():
+    global mbox
+
+    print_and_pause("Sending message to Brick02")
+    mbox.send(True)
+
+    mbox.wait()
+    print_and_pause("Waiting for garage door to open")
+
+    result = mbox.read()
+
+    if result:
+        print_and_pause("garage door opened!")
+    else:
+        print_and_pause("ERROR!!!")
+        exit(1)
 
 def print_and_pause(msg):
     ev3.screen.print(msg)
@@ -367,6 +416,10 @@ def print_and_pause(msg):
 while True:
 
     if above_shift.pressed():
+        if Button.UP in ev3.buttons.pressed():
+            print_and_pause("Opening Garage Door")
+            open_garage_door()
+
         if Button.LEFT in ev3.buttons.pressed():
             print_and_pause("Above Retracting")
             above_catch.retract(force=True)
@@ -390,8 +443,8 @@ while True:
             catch.extend(force=True)
 
         if Button.CENTER in ev3.buttons.pressed():
-            print_and_pause("Mids Prime") 
-            catch.prime()
+            print_and_pause("Mids Toggle") 
+            catch.toggle()
         
         if Button.DOWN in ev3.buttons.pressed():
             print_and_pause("Mids hang time!") 
@@ -425,7 +478,7 @@ while True:
             cage.stop(last_height)
 
     
-    (height, pressure) = check_sensors(cage)
+    (height) = check_sensors(cage)
 
     if height > MIN_HEIGHT:
         lights.setColor(colors[0])
@@ -460,16 +513,27 @@ while True:
             print("Engaging elevator!")
             cage.engage()
             dropped_time = 0
-    
+    elif cage.status() == 'Engaged':
+        if drop_height != 0 and (drop_height - height) > ROADRUNNER_RAISE:
+            road_runner(height)
 
     # BUG: Check where the cage is out
-    if cage.status() == 'Engaged' and catch.status() == 'Extended' and cage.lift_height() != 0 and (cage.lift_height() - height) > ROADRUNNER_RAISE:
-        road_runner(height)
 
     # BUG: need a safety so cage never runs into retracted level!!!
 
+    # if time() - last_gauge_time >= 5:
+    #     last_gauge_time = time()
+    #     gauge = PPS58(Port.S4)
+    #     gauge.unitSelect('b')
+    #     pressure = gauge.readAbsolute()
+    #     if pressure < LOW_PRESSURE and not catch.running():
+    #         catch.prime()
+    #     elif pressure > DESIRED_PRESSURE and catch.running():
+    #         catch.stop()
+    #     print(" pressure: " + str(pressure) )
 
-    # Check if it's been 3 seconds since the last print time
+
+    # Check if it's been 1 seconds since the last print time
     if time() - last_print_time >= 1:
 
         # Update the last_print_time timestamp variable
@@ -477,7 +541,6 @@ while True:
 
         # Print the current height on the EV3DEV display
         ev3.screen.clear()
-
 
         # TODO: Fix drop time toggle display
         if (dropped_time):
@@ -490,7 +553,7 @@ while True:
         #ev3.screen.print("Color: " + lights.current())
         ev3.screen.print("Mids: " + catch.status())
         ev3.screen.print("Above: " + above_catch.status())
-        print("Height: " + str(height) + " pressure: " + str(pressure) )
+        print("Height: " + str(height) )
         #print("drop height= " + str( (cage.lift_height() - height) ))
 
     # we wait 60ms checking the height
