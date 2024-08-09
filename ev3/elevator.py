@@ -1,5 +1,8 @@
 #!/usr/bin/env pybricks-micropython
 
+# EV3 Motor Speeds Here
+# https://mumin.pl/Probot/PROBOT/university_of_silesia_edures_foundation/basic_motors/O1/O1.html#:~:text=The%20rated%20maximum%20speed%20of%20the%20Lego%20EV3%20large%20(medium,and%20different%20number%20of%20rotations.
+
 from pybricks.ev3devices import *
 from pybricks.hubs import EV3Brick
 from pybricks.parameters import *
@@ -11,22 +14,36 @@ from pybricks.parameters import Port
 import math
 from pybricks.messaging import BluetoothMailboxServer, LogicMailbox
 
+from pybricks.media.ev3dev import Font
 
-ABOVE_INTERVAL = 23
+
+ABOVE_INTERVAL = 45 
 ABOVE_PAUSE = 3000
-MIDS_INTERVAL = 23 
+MIDS_INTERVAL = 45 
 TOTAL_DROP_TIME = 69
+DROP_BEORE_GARAGE_TIME = 10 
 ROADRUNNER_RAISE = .75 
 HANG_TIME = 1000
-DESIRED_PRESSURE = 2900
-LOW_PRESSURE = 2700
+EXTENDED_PRESSURE_HIGH = 2500
+EXTENDED_PRESSURE_LOW = 2450
 
+RETRACTED_PRESSURE_HIGH = 2350
+RETRACTED_PRESSURE_LOW = 2300
+
+ABOVE_CATCH_COUNTER = 3
 MAX_HEIGHT =  1.75
-ABOVE_CATCH_HEIGHT = 2.7
+ABOVE_CATCH_HEIGHT = 2.9
 ABOVE_CATCH_SPEED = 900
 MIN_HEIGHT =  34.0
 
-GARAGE_DOOR = True
+GARAGE_DOOR = False 
+
+
+EXTENDED_STATUS = 'Extended'
+RETRACTED_STATUS = 'Retracted'
+ENGAGED_STATUS = 'Engaged'
+STOPPED_STATUS = 'Stopped'
+DROPPED_STATUS = 'Dropped'
 
 class Catch():
     _status = None
@@ -37,7 +54,7 @@ class Catch():
     _last_speed = -1050
 
     def __init__(self, motor : Motor):
-        self._status = 'Retracted'
+        self._status = RETRACTED_STATUS
         self._motor = motor
         self.print_angle()
 
@@ -45,18 +62,18 @@ class Catch():
         print("mids angle ::" + str(self._motor.angle()))
 
     def already_extended(self):
-        self._status = 'Extended'
+        self._status = EXTENDED_STATUS
         self._last_speed = 1050
 
     def extend(self, force=False):
-        if self._status == 'Retracted' or force:
-            self._update('Retracted', 'Extended', 1050, time=25000)
+        if self._status == RETRACTED_STATUS or force:
+            self._update(RETRACTED_STATUS, EXTENDED_STATUS, 1050, time_to_run=3000)
             self.print_angle()
 
     def retract(self, force=True):
-        if self._status == 'Extended' or force:
+        if self._status == EXTENDED_STATUS or force:
             self.stop()
-            self._update('Extended', 'Retracted', -1050, time=25000)
+            self._update(EXTENDED_STATUS, RETRACTED_STATUS, -1050, time_to_run=4500)
             self.print_angle()
 
     def toggle(self):
@@ -67,30 +84,38 @@ class Catch():
             self.stop()
 
     def prime(self):
-        self._run_motor(self._last_speed, time=180000)
+        if self._primed:
+            self._run_motor(self._last_speed, time_to_run=60000)
 
     def stop(self):
         print("stopping catch motor")
+        self._stop_time = 0
         self._motor.stop()
 
     def running(self):
-        self.print_angle()
-        return self._motor.speed() > 0
+        if self._stop_time != 0 and (self._stop_time - time()) > 0:
+            return True
+        else:
+            return False
 
-    def _update(self, check_status, reset_status, speed, time=5000): 
+    def _update(self, check_status, reset_status, speed, time_to_run=5000): 
         self._last_speed = speed
-        # this is unecessary now that we are doing this in the method
         if self._status == check_status:
-            self._shift_motor(self._last_speed, time)
+            self._shift_motor(self._last_speed, time_to_run)
             self._status = reset_status
+        else:
+            print("ERROR unable to shift")
 
-    def _run_motor(self, speed, time): 
-        # https://mumin.pl/Probot/PROBOT/university_of_silesia_edures_foundation/basic_motors/O1/O1.html#:~:text=The%20rated%20maximum%20speed%20of%20the%20Lego%20EV3%20large%20(medium,and%20different%20number%20of%20rotations.
-        self._motor.run_time(speed, time, then=Stop.COAST, wait=False)
+    def _run_motor(self, speed, time_to_run : int): 
+        self._stop_time = time() + (time_to_run/1000)
+        self._motor.run_time(speed, time_to_run, then=Stop.COAST, wait=False)
 
-    def _shift_motor(self, speed, time): 
-        # https://mumin.pl/Probot/PROBOT/university_of_silesia_edures_foundation/basic_motors/O1/O1.html#:~:text=The%20rated%20maximum%20speed%20of%20the%20Lego%20EV3%20large%20(medium,and%20different%20number%20of%20rotations.
-        self._motor.run_time(speed, time, then=Stop.COAST, wait=False)
+    def _shift_motor(self, speed, time_to_run): 
+        self._stop_time = time() + (time_to_run/1000)
+        print("Shifting motor")
+        self.print_angle()
+        self._motor.run_time(speed, time_to_run, then=Stop.COAST, wait=True)
+        self.print_angle()
 
     def status(self):
         return self._status
@@ -102,7 +127,7 @@ class AboveCatch():
     _stop_time = 0
 
     def __init__(self, motor : Motor):
-        self._status = 'Retracted'
+        self._status = RETRACTED_STATUS
         self._motor = motor
         self.print_angle()
 
@@ -110,86 +135,51 @@ class AboveCatch():
         print("above angle ::" + str(self._motor.angle()))
 
     def extend(self, force=False):
-        #self._update('Retracted', 'Extended', 1, force)
-        if self._status == 'Retracted' or force:
-            #self._run_motor(position)
-            self._motor.run_target(600, 1080 , then=Stop.HOLD, wait=False)
-            self._status = 'Extended'
+        if self._status == RETRACTED_STATUS or force:
+            self._motor.run_target(1050, 1080 , then=Stop.HOLD, wait=True)
+            self._status = EXTENDED_STATUS
             self.print_angle()
 
     def retract(self, force=False):
-        #self._update('Extended', 'Retracted', -1, force)
-        if self._status == 'Extended' or force:
-            #self._run_motor(position)
-            #self._motor.run_target(300, self._motor.angle() * -1, then=Stop.HOLD, wait=False)
+        if self._status == EXTENDED_STATUS or force:
             self._motor.run_time(-600, 2200, then=Stop.COAST, wait=True)
             self._motor.reset_angle(0)
 
-
-            #self._motor.run_until_stalled(300, then=Stop.COAST)
-            self._status = 'Retracted'
+            self._status = RETRACTED_STATUS
             self.print_angle()
 
-
     def already_extended(self):
-        self._status = 'Extended'
-
-    def should_stop(self):
-        pass
-
-    def stop(self):
-        pass
-
-    def _update(self, check_status, reset_status, position, force=False): 
-        # this is unecessary now that we are doing this in the method
-        pass
-
-    def _run_motor(self, direction): 
-        pass
+        self._status = EXTENDED_STATUS
 
     def status(self):
         return self._status
 
 
-
 class Cage():
-    # TODO: make a function to operate in autonomous mode
     _auto = None
     _status = None
-    _liftHeight = 0
 
     def __init__(self, motor):
-        self._status = 'Stopped'
+        self._status = STOPPED_STATUS
         self._motor = motor
         self.print_position('init')
 
     def engage(self, no_shift=False, lift_height=None):
-        if lift_height:
-            self._liftHeight = lift_height
-
         if not no_shift:
-            #self._status = 'Engaged'
-            self._run_to_position(-39, 'Dropped', 'Engaged')
+            self._run_to_position(-39, DROPPED_STATUS, ENGAGED_STATUS)
         else:
-            self.set_status('Engaged')
+            self.set_status(ENGAGED_STATUS)
             self._motor.reset_angle(-39)
 
         self.print_position('engage')
 
-    def drop(self, height):
-        #self._status = 'Dropped'
-        self._run_to_position(0, 'Engaged', 'Dropped')
+    def drop(self):
+        self._run_to_position(0, ENGAGED_STATUS, DROPPED_STATUS)
         self.print_position('drop')
-        self._liftHeight = 0
 
-    # this is the height that the cage is at when it is engaged
-    # NOT the drop height 
-    def lift_height(self):
-        return self._liftHeight
-
-    def stop(self, height):
-        self.drop(height)
-        self._status = 'Stopped'
+    def stop(self):
+        self.drop()
+        self._status = STOPPED_STATUS
 
     def status(self):
         return self._status
@@ -198,7 +188,7 @@ class Cage():
         self._status = status
 
     def _run_to_position(self, position, check_status, reset_status):
-        if self._status == check_status or self._status == 'Stopped':
+        if self._status == check_status or self._status == STOPPED_STATUS:
             self._motor.run_target(
                 speed=100,
                 target_angle=position,
@@ -274,7 +264,12 @@ ev3 = EV3Brick()
 ToF = DIST_ToF(Port.S1, 0x02)
 tower = TowerHeight()
 
+FONT = Font('Sans',16)
+ev3.screen.set_font(FONT)
 
+
+gauge = PPS58(Port.S4)
+gauge.unitSelect('b')
 
 lights = LED()
 lights.audit()
@@ -287,7 +282,7 @@ mids_shift = TouchSensor(Port.S2)
 above_shift = TouchSensor(Port.S3)
 
 cage = Cage(motor)
-cage.stop(0)
+cage.stop()
 catch = Catch(catch_motor)
 catch.stop()
 
@@ -334,7 +329,7 @@ def check_sensors(cage):
     height = min(height_results)
     #pressure = max(pressure_results)
 
-    if cage.status() == 'Engaged':
+    if cage.status() == ENGAGED_STATUS:
         if abs(height) < .5:
             print("Ignoring reading of 0")
             height = last_height
@@ -357,18 +352,21 @@ def check_sensors(cage):
 
 # Initialize the last_print_time timestamp variable
 last_print_time = 0
+last_height_for_speed = 0
 last_gauge_time = 0
+speed = 0
 
 dropped_time = 0
 last_height = 0
 drop_height = 0
 
+# BUG: This is obsolete, since the catch is now sync
 def road_runner(height):
     ev3.screen.print("Road runner")
     print("Road runner")
     #cage.engage()
     #wait(HANG_TIME)
-    cage.drop(height)
+    cage.drop()
     global drop_height
     drop_height = 0
 
@@ -377,16 +375,25 @@ def drop_from_mids(height):
     global drop_height
     drop_height = height
     print("Hang time from " + str(height))
+    
     cage.engage(lift_height=height)
+    
+    # TODO: Determine time to retract here based on cached speed value
     catch.retract()
+
     global dropped_time
     dropped_time = time()
+
+    # try dropping immediately
+    cage.drop()
+    global drop_height
+    drop_height = 0
 
 def drop_from_above():
     ev3.screen.print("Drop from above")
 
     catch.extend()
-    wait(ABOVE_PAUSE)
+    #wait(ABOVE_PAUSE)
     above_catch.retract()
     global dropped_time
     dropped_time = time()
@@ -412,6 +419,16 @@ def print_and_pause(msg):
     ev3.screen.print(msg)
     print(msg)
     wait(350)
+
+
+def prime_and_stop(low, high):
+    global catch
+    if pressure < low and not catch.running():
+        catch.prime()
+    elif pressure > high and catch.running():
+        catch.stop()
+
+
 
 while True:
 
@@ -475,86 +492,99 @@ while True:
         if Button.DOWN in ev3.buttons.pressed():
             print_and_pause("Cage Stopping")
             print("DOWN pressed")
-            cage.stop(last_height)
+
+            if cage.status() == STOPPED_STATUS:
+                cage.drop()
+                dropped_time = time()
+            else:
+                cage.stop()
 
     
     (height) = check_sensors(cage)
+    pressure = gauge.readAbsolute()
+
+    if time() - last_gauge_time >= 1:
+
+        last_gauge_time = time()
+
+        if catch.status() == RETRACTED_STATUS:
+            prime_and_stop(RETRACTED_PRESSURE_LOW, RETRACTED_PRESSURE_HIGH)
+        elif catch.status() == EXTENDED_STATUS:
+            prime_and_stop(EXTENDED_PRESSURE_LOW, EXTENDED_PRESSURE_HIGH)
 
     if height > MIN_HEIGHT:
         lights.setColor(colors[0])
 
         # 4 & 5
-    elif height < MAX_HEIGHT and cage.status() == 'Engaged':
+    elif height < MAX_HEIGHT and cage.status() == ENGAGED_STATUS:
         print("dropping due to height :: " + str(height))
-        cage.drop(height)
+        cage.drop()
         dropped_time = time()
-    elif height < ABOVE_CATCH_HEIGHT and cage.status() == 'Engaged':
+    elif height < ABOVE_CATCH_HEIGHT and cage.status() == ENGAGED_STATUS:
         #lights.setColor(colors[14])
         print("extending above catch :: " + str(height))
         above_catch.extend()
+
+        cage.drop()
+        dropped_time = time()
     else:
         color_index = int(((height - 3) / 2) % 16)
         lights.setColor(colors[-color_index])
     
-    if cage.status() == 'Dropped':
+    if cage.status() == DROPPED_STATUS:
         
         # check whether we are above
-        if above_catch.status() == 'Extended' and dropped_time > 0 and time() - dropped_time >= ABOVE_INTERVAL: 
-            drop_from_above()
+        if above_catch.status() == EXTENDED_STATUS:
+            if dropped_time > 0 and time() - dropped_time >= ABOVE_INTERVAL: 
+                drop_from_above()
 
 
         # check whether we are sitting in the mids
-        elif catch.status() == 'Extended' and dropped_time > 0 and time() - dropped_time >= MIDS_INTERVAL:
-            drop_from_mids(height)
+        elif catch.status() == EXTENDED_STATUS:
+            if pressure > EXTENDED_PRESSURE_LOW and dropped_time > 0 and time() - dropped_time >= MIDS_INTERVAL:
+                drop_from_mids(height)
 
         # check whether we are under            
-        elif dropped_time > 0 and time() - dropped_time >= TOTAL_DROP_TIME:
-            ev3.screen.print("Engaging elevator!")
-            print("Engaging elevator!")
+        elif height > 30 and dropped_time > 0 and (time() - dropped_time >= DROP_BEORE_GARAGE_TIME) and GARAGE_DOOR:
+            print_and_pause("Open Garage Door")
+            catch.stop()
+            open_garage_door()
             cage.engage()
             dropped_time = 0
-    elif cage.status() == 'Engaged':
-        if drop_height != 0 and (drop_height - height) > ROADRUNNER_RAISE:
-            road_runner(height)
 
-    # BUG: Check where the cage is out
+        # this will also engage from the mids if the catch did not retract
+        elif dropped_time > 0 and (time() - dropped_time >= TOTAL_DROP_TIME):
+            print_and_pause("Engaging from Under")
+            cage.engage()
+            dropped_time = 0
 
-    # BUG: need a safety so cage never runs into retracted level!!!
-
-    # if time() - last_gauge_time >= 5:
-    #     last_gauge_time = time()
-    #     gauge = PPS58(Port.S4)
-    #     gauge.unitSelect('b')
-    #     pressure = gauge.readAbsolute()
-    #     if pressure < LOW_PRESSURE and not catch.running():
-    #         catch.prime()
-    #     elif pressure > DESIRED_PRESSURE and catch.running():
-    #         catch.stop()
-    #     print(" pressure: " + str(pressure) )
-
-
-    # Check if it's been 1 seconds since the last print time
     if time() - last_print_time >= 1:
+        if cage.status() == ENGAGED_STATUS:
+            time_diff = time() - last_print_time
+            height_diff =  last_height_for_speed - height
+            speed = height_diff / time_diff
 
-        # Update the last_print_time timestamp variable
-        last_print_time = time()
+        last_height_for_speed = height
 
-        # Print the current height on the EV3DEV display
         ev3.screen.clear()
 
-        # TODO: Fix drop time toggle display
-        if (dropped_time):
-            ev3.screen.print("Droptime : " + str(time() - dropped_time))
-        else:
-            ev3.screen.print("Distance : " + str(height))
+        ev3.screen.print("Distance : " + "{:.2f}".format(height))
 
-        # TODO: Add speed 
+        if (dropped_time):
+            ev3.screen.print("Droptime : " + "{:.2f}".format(time() - dropped_time))
+        else:
+            ev3.screen.print("Speed : " + "{:.4f}".format(speed))
+
+        #ev3.screen.print("Delta : " + "{:.8f}".format(last_height_for_speed))
+        #ev3.screen.print("Pressure: " + "{:.2f}".format(pressure))
         ev3.screen.print("Cage: " + cage.status())
         #ev3.screen.print("Color: " + lights.current())
-        ev3.screen.print("Mids: " + catch.status())
+        ev3.screen.print("Mids: " + catch.status()[0] + "  " + "{:.2f}".format(pressure) + " kbar")
         ev3.screen.print("Above: " + above_catch.status())
-        print("Height: " + str(height) )
-        #print("drop height= " + str( (cage.lift_height() - height) ))
+
+        print("Height: " + str(height) + " pressure: " + str(pressure) + " motor: " + str(catch.running()) )
+
+        last_print_time = time()
 
     # we wait 60ms checking the height
     wait(1)
